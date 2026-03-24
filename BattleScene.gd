@@ -6,6 +6,11 @@ const MODULE_GATE_WIDTH := 180.0
 const MODULE_GATE_LEFT := MODULE_WIDTH * 0.5 - MODULE_GATE_WIDTH * 0.5
 const MODULE_GATE_RIGHT := MODULE_WIDTH * 0.5 + MODULE_GATE_WIDTH * 0.5
 const ROAD_CORRIDOR_WIDTH := 180.0
+const PATH_HALF_WIDTH := 60.0
+const CROSS_PATH_HALF_HEIGHT := 68.0
+const SIDE_GATE_HALF_HEIGHT := 70.0
+const SIDE_GATE_TOP := MODULE_HEIGHT * 0.5 - SIDE_GATE_HALF_HEIGHT
+const SIDE_GATE_BOTTOM := MODULE_HEIGHT * 0.5 + SIDE_GATE_HALF_HEIGHT
 const MONSTER_SPAWN_ATTEMPTS := 18
 
 const PLAYER_SPEED := 340.0
@@ -18,14 +23,14 @@ const MONSTER_DIR_PATH := "res://assets/monsters"
 const TREE_TEXTURE_PATH := "res://assets/environment/tree.png"
 const ROCK_TEXTURE_PATH := "res://assets/environment/rock.png"
 
-const ENTRY_TREE_COUNT := 6
+const ENTRY_TREE_COUNT := 5
 const FOREST_MONSTER_COUNT := 10
-const FOREST_TREE_COUNT := 42
-const FOREST_ROCK_COUNT := 8
+const FOREST_TREE_COUNT := 28
+const FOREST_ROCK_COUNT := 6
 const ROAD_MONSTER_COUNT := 8
-const ROAD_ROCK_COUNT := 12
+const ROAD_ROCK_COUNT := 8
 const NEST_MONSTER_COUNT := 12
-const NEST_ROCK_COUNT := 8
+const NEST_ROCK_COUNT := 6
 
 var rng := RandomNumberGenerator.new()
 var total_map_height := 0.0
@@ -220,14 +225,21 @@ func create_entry_module(offset_y: float, offset_x: float) -> void:
 	var module_bounds := Rect2(Vector2(56.0, 54.0), Vector2(MODULE_WIDTH - 112.0, MODULE_HEIGHT - 108.0))
 
 	add_module_floor(offset_y, offset_x, Color(0.46, 0.71, 0.44), Color(0.19, 0.38, 0.19))
+	add_path_cross(offset_y, offset_x, Color(0.82, 0.9, 0.7, 0.18))
 	add_circle_fill(to_world_pos(offset_y, offset_x, ratio_pos(0.5, 0.24)), 84.0, Color(0.82, 0.91, 0.66, 0.48), -16)
 	decorate_module_boundaries(offset_y, offset_x, "entry", false, true)
 
 	for index in range(ENTRY_TREE_COUNT):
-		place_tree_local(offset_y, offset_x, jitter_local_point(tree_points[index % tree_points.size()], Vector2(22.0, 24.0), module_bounds))
+		var tree_pos := jitter_local_point(tree_points[index % tree_points.size()], Vector2(22.0, 24.0), module_bounds)
+		if is_in_path_corridor(tree_pos):
+			continue
+		place_tree_local(offset_y, offset_x, tree_pos, choose_obstacle_kind())
 
 	for rock_point in rock_points:
-		place_rock_local(offset_y, offset_x, jitter_local_point(rock_point, Vector2(18.0, 18.0), module_bounds))
+		var local_rock_pos := jitter_local_point(rock_point, Vector2(18.0, 18.0), module_bounds)
+		if is_in_path_corridor(local_rock_pos):
+			continue
+		place_rock_local(offset_y, offset_x, local_rock_pos, choose_obstacle_kind())
 
 	if offset_x == 0.0:
 		player.position = to_world_pos(offset_y, offset_x, spawn_point)
@@ -303,13 +315,20 @@ func create_forest_module(offset_y: float, offset_x: float) -> void:
 		]
 
 	add_module_floor(offset_y, offset_x, fill_color, border_color)
+	add_path_cross(offset_y, offset_x, Color(0.32, 0.54, 0.34, 0.14))
 	decorate_module_boundaries(offset_y, offset_x, "forest", true, true)
 
 	for _i in range(FOREST_TREE_COUNT):
-		place_tree_local(offset_y, offset_x, sample_point_from_points(tree_points, Vector2(52.0, 44.0), tree_bounds))
+		var tree_pos := sample_point_from_points(tree_points, Vector2(52.0, 44.0), tree_bounds)
+		if is_in_path_corridor(tree_pos):
+			continue
+		place_tree_local(offset_y, offset_x, tree_pos, choose_obstacle_kind())
 
 	for _i in range(FOREST_ROCK_COUNT):
-		place_rock_local(offset_y, offset_x, sample_point_from_points(rock_points, Vector2(22.0, 22.0), tree_bounds))
+		var rock_pos := sample_point_from_points(rock_points, Vector2(22.0, 22.0), tree_bounds)
+		if is_in_path_corridor(rock_pos):
+			continue
+		place_rock_local(offset_y, offset_x, rock_pos, choose_obstacle_kind())
 
 	spawn_monsters_from_points(offset_y, offset_x, spawn_points, FOREST_MONSTER_COUNT, monster_bounds, Vector2(50.0, 44.0), "normal", 46.0)
 
@@ -328,6 +347,7 @@ func create_road_module(offset_y: float, offset_x: float) -> void:
 	var monster_bounds := Rect2(Vector2(corridor_left + 18.0, 74.0), Vector2(ROAD_CORRIDOR_WIDTH - 36.0, MODULE_HEIGHT - 148.0))
 
 	add_module_floor(offset_y, offset_x, Color(0.39, 0.33, 0.24), Color(0.19, 0.15, 0.09))
+	add_path_cross(offset_y, offset_x, Color(0.76, 0.68, 0.48, 0.16))
 	add_vertical_corridor_strip(offset_y, offset_x, corridor_left, corridor_right, Color(0.64, 0.56, 0.38, 0.72))
 	decorate_module_boundaries(offset_y, offset_x, "road", true, true)
 	create_road_side_walls(offset_y, offset_x, corridor_left, corridor_right)
@@ -350,6 +370,7 @@ func create_nest_module(offset_y: float, offset_x: float) -> void:
 	var monster_bounds := Rect2(Vector2(146.0, 116.0), Vector2(MODULE_WIDTH - 292.0, MODULE_HEIGHT - 232.0))
 
 	add_module_floor(offset_y, offset_x, Color(0.25, 0.21, 0.17), Color(0.11, 0.08, 0.05))
+	add_path_cross(offset_y, offset_x, Color(0.58, 0.36, 0.24, 0.14))
 	add_circle_fill(center, 104.0, Color(0.43, 0.24, 0.16, 0.8), -15)
 	add_circle_outline(center, 126.0, Color(0.69, 0.42, 0.24, 0.96), 6.0, -14)
 	decorate_module_boundaries(offset_y, offset_x, "nest", true, true)
@@ -358,7 +379,10 @@ func create_nest_module(offset_y: float, offset_x: float) -> void:
 		var angle := TAU * float(index) / float(NEST_ROCK_COUNT) + rng.randf_range(-0.18, 0.18)
 		var distance := 156.0 + rng.randf_range(-12.0, 24.0)
 		var rock_pos := center_local + Vector2.RIGHT.rotated(angle) * distance
-		place_rock_local(offset_y, offset_x, clamp_local_point(rock_pos, Rect2(Vector2(74.0, 74.0), Vector2(MODULE_WIDTH - 148.0, MODULE_HEIGHT - 148.0))))
+		var local_rock_pos := clamp_local_point(rock_pos, Rect2(Vector2(74.0, 74.0), Vector2(MODULE_WIDTH - 148.0, MODULE_HEIGHT - 148.0)))
+		if is_in_path_corridor(local_rock_pos):
+			continue
+		place_rock_local(offset_y, offset_x, local_rock_pos, "soft")
 
 	spawn_monsters_from_points(offset_y, offset_x, spawn_points, NEST_MONSTER_COUNT, monster_bounds, Vector2(28.0, 28.0), "normal", 32.0)
 	spawn_monster(jitter_local_point(center_local, Vector2(18.0, 18.0), monster_bounds), "elite", offset_y, offset_x)
@@ -369,6 +393,7 @@ func create_boss_module(offset_y: float, offset_x: float) -> void:
 	var center := to_world_pos(offset_y, offset_x, spawn_point)
 
 	add_module_floor(offset_y, offset_x, Color(0.18, 0.13, 0.14), Color(0.3, 0.1, 0.11))
+	add_path_cross(offset_y, offset_x, Color(0.54, 0.22, 0.18, 0.16))
 	add_circle_fill(center, 142.0, Color(0.38, 0.11, 0.12, 0.82), -15)
 	add_circle_outline(center, 162.0, Color(0.87, 0.53, 0.24, 0.96), 7.0, -14)
 	decorate_module_boundaries(offset_y, offset_x, "boss", true, false)
@@ -376,7 +401,10 @@ func create_boss_module(offset_y: float, offset_x: float) -> void:
 	for index in range(8):
 		var angle := TAU * float(index) / 8.0
 		var local_pos := spawn_point + Vector2.RIGHT.rotated(angle) * rng.randf_range(166.0, 194.0)
-		place_rock_local(offset_y, offset_x, clamp_local_point(local_pos, Rect2(Vector2(80.0, 80.0), Vector2(MODULE_WIDTH - 160.0, MODULE_HEIGHT - 160.0))))
+		var boss_rock_pos := clamp_local_point(local_pos, Rect2(Vector2(80.0, 80.0), Vector2(MODULE_WIDTH - 160.0, MODULE_HEIGHT - 160.0)))
+		if is_in_path_corridor(boss_rock_pos):
+			continue
+		place_rock_local(offset_y, offset_x, boss_rock_pos, "hard")
 
 	spawn_monster(spawn_point, "boss", offset_y, offset_x)
 
@@ -472,12 +500,24 @@ func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0,
 	return monster
 
 
-func place_tree(pos: Vector2) -> StaticBody2D:
-	return create_obstacle_body(pos, tree_texture, Vector2(60.0, 60.0), Vector2(1.4, 2.0), Vector2(-8.0, 8.0), 4)
+func place_tree(pos: Vector2, obstacle_kind: String = "decor") -> Node2D:
+	match obstacle_kind:
+		"soft":
+			return create_obstacle_body(pos, tree_texture, Vector2(30.0, 30.0), Vector2(1.25, 1.65), Vector2(-8.0, 8.0), 4)
+		"hard":
+			return create_obstacle_body(pos, tree_texture, Vector2(60.0, 60.0), Vector2(1.7, 2.15), Vector2(-8.0, 8.0), 4)
+		_:
+			return create_decor_sprite(pos, tree_texture, Vector2(0.8, 1.15), Vector2(-8.0, 8.0), 3)
 
 
-func place_rock(pos: Vector2) -> StaticBody2D:
-	return create_obstacle_body(pos, rock_texture, Vector2(44.0, 44.0), Vector2(1.1, 1.6), Vector2(-18.0, 18.0), 5)
+func place_rock(pos: Vector2, obstacle_kind: String = "decor") -> Node2D:
+	match obstacle_kind:
+		"soft":
+			return create_obstacle_body(pos, rock_texture, Vector2(30.0, 30.0), Vector2(1.0, 1.3), Vector2(-18.0, 18.0), 5)
+		"hard":
+			return create_obstacle_body(pos, rock_texture, Vector2(60.0, 60.0), Vector2(1.35, 1.8), Vector2(-18.0, 18.0), 5)
+		_:
+			return create_decor_sprite(pos, rock_texture, Vector2(0.75, 1.0), Vector2(-18.0, 18.0), 4)
 
 
 func create_obstacle_body(world_pos: Vector2, texture: Texture2D, collision_size: Vector2, scale_range: Vector2, rotation_range: Vector2, z_index_value: int) -> StaticBody2D:
@@ -505,6 +545,18 @@ func create_obstacle_body(world_pos: Vector2, texture: Texture2D, collision_size
 	return body
 
 
+func create_decor_sprite(world_pos: Vector2, texture: Texture2D, scale_range: Vector2, rotation_range: Vector2, z_index_value: int) -> Sprite2D:
+	var sprite := Sprite2D.new()
+	sprite.texture = texture
+	sprite.position = world_pos
+	sprite.centered = true
+	sprite.scale = Vector2.ONE * rng.randf_range(scale_range.x, scale_range.y)
+	sprite.rotation = deg_to_rad(rng.randf_range(rotation_range.x, rotation_range.y))
+	sprite.z_index = z_index_value
+	obstacles_root.add_child(sprite)
+	return sprite
+
+
 func clear_children(root: Node) -> void:
 	for child in root.get_children():
 		child.queue_free()
@@ -512,9 +564,11 @@ func clear_children(root: Node) -> void:
 
 func spawn_monsters_from_points(offset_y: float, offset_x: float, spawn_points: Array[Vector2], count: int, bounds: Rect2, spread: Vector2, type: String = "normal", min_distance: float = 28.0) -> void:
 	var used_positions: Array[Vector2] = []
+	var candidate_points := spawn_points.duplicate()
+	candidate_points.append_array(build_path_spawn_points(bounds))
 
 	for _i in range(count):
-		var local_pos := sample_spawn_position(spawn_points, used_positions, bounds, spread, min_distance)
+		var local_pos := sample_spawn_position(candidate_points, used_positions, bounds, spread, min_distance)
 		used_positions.append(local_pos)
 		spawn_monster(local_pos, type, offset_y, offset_x)
 
@@ -552,8 +606,10 @@ func get_nearest_distance(local_pos: Vector2, used_positions: Array[Vector2]) ->
 
 
 func decorate_module_boundaries(offset_y: float, offset_x: float, theme: String, top_has_opening: bool, bottom_has_opening: bool) -> void:
-	place_vertical_boundary(offset_y, offset_x, 18.0, theme)
-	place_vertical_boundary(offset_y, offset_x, MODULE_WIDTH - 18.0, theme)
+	var left_has_opening := offset_x > 0.0
+	var right_has_opening := offset_x < MODULE_WIDTH
+	place_vertical_boundary(offset_y, offset_x, 18.0, theme, left_has_opening)
+	place_vertical_boundary(offset_y, offset_x, MODULE_WIDTH - 18.0, theme, right_has_opening)
 	place_horizontal_boundary(offset_y, offset_x, 22.0, theme, top_has_opening)
 	place_horizontal_boundary(offset_y, offset_x, MODULE_HEIGHT - 22.0, theme, bottom_has_opening)
 
@@ -570,38 +626,46 @@ func place_horizontal_boundary(offset_y: float, offset_x: float, y_local: float,
 		x_local += 44.0 + rng.randf_range(-3.0, 3.0)
 
 
-func place_vertical_boundary(offset_y: float, offset_x: float, x_local: float, theme: String) -> void:
+func place_vertical_boundary(offset_y: float, offset_x: float, x_local: float, theme: String, has_opening: bool) -> void:
 	var y_local := 36.0
 	while y_local <= MODULE_HEIGHT - 36.0:
+		if has_opening and y_local >= SIDE_GATE_TOP and y_local <= SIDE_GATE_BOTTOM:
+			y_local = SIDE_GATE_BOTTOM + 26.0
+			continue
+
 		var local_pos := Vector2(x_local + rng.randf_range(-6.0, 6.0), y_local + rng.randf_range(-6.0, 6.0))
 		place_boundary_obstacle(offset_y, offset_x, local_pos, theme)
 		y_local += 44.0 + rng.randf_range(-3.0, 4.0)
 
 
 func place_boundary_obstacle(offset_y: float, offset_x: float, local_pos: Vector2, theme: String) -> void:
+	if is_in_path_corridor(local_pos):
+		return
+
+	var obstacle_kind := choose_obstacle_kind()
 	var roll := rng.randf()
 
 	match theme:
 		"forest":
 			if roll < 0.72:
-				place_tree_local(offset_y, offset_x, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos, obstacle_kind)
 			else:
-				place_rock_local(offset_y, offset_x, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos, obstacle_kind)
 		"road":
 			if roll < 0.86:
-				place_rock_local(offset_y, offset_x, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos, obstacle_kind)
 			else:
-				place_tree_local(offset_y, offset_x, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos, obstacle_kind)
 		"nest", "boss":
 			if roll < 0.9:
-				place_rock_local(offset_y, offset_x, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos, obstacle_kind)
 			else:
-				place_tree_local(offset_y, offset_x, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos, obstacle_kind)
 		_:
 			if roll < 0.62:
-				place_tree_local(offset_y, offset_x, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos, obstacle_kind)
 			else:
-				place_rock_local(offset_y, offset_x, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos, obstacle_kind)
 
 
 func create_road_side_walls(offset_y: float, offset_x: float, corridor_left: float, corridor_right: float) -> void:
@@ -614,7 +678,32 @@ func create_road_side_walls(offset_y: float, offset_x: float, corridor_left: flo
 		if not left_side:
 			x_local = corridor_right + rng.randf_range(28.0, 52.0)
 
-		place_rock_local(offset_y, offset_x, Vector2(x_local, y_local))
+		place_rock_local(offset_y, offset_x, Vector2(x_local, y_local), "soft" if rng.randf() < 0.8 else "hard")
+
+
+func choose_obstacle_kind() -> String:
+	var roll := rng.randf()
+	if roll < 0.8:
+		return "decor"
+	if roll < 0.95:
+		return "soft"
+	return "hard"
+
+
+func is_in_path_corridor(local_pos: Vector2) -> bool:
+	return absf(local_pos.x - MODULE_WIDTH * 0.5) < PATH_HALF_WIDTH or absf(local_pos.y - MODULE_HEIGHT * 0.5) < CROSS_PATH_HALF_HEIGHT
+
+
+func build_path_spawn_points(bounds: Rect2) -> Array[Vector2]:
+	var path_points: Array[Vector2] = []
+	var top_y := bounds.position.y + 34.0
+	var bottom_y := bounds.position.y + bounds.size.y - 34.0
+
+	for index in range(4):
+		var t := float(index + 1) / 5.0
+		path_points.append(clamp_local_point(Vector2(MODULE_WIDTH * 0.5, lerpf(top_y, bottom_y, t)), bounds))
+
+	return path_points
 
 
 func ratio_pos(x_ratio: float, y_ratio: float) -> Vector2:
@@ -625,12 +714,12 @@ func to_world_pos(offset_y: float, offset_x: float, local_pos: Vector2) -> Vecto
 	return Vector2(offset_x + local_pos.x, offset_y + local_pos.y)
 
 
-func place_tree_local(offset_y: float, offset_x: float, local_pos: Vector2) -> StaticBody2D:
-	return place_tree(to_world_pos(offset_y, offset_x, local_pos))
+func place_tree_local(offset_y: float, offset_x: float, local_pos: Vector2, obstacle_kind: String = "decor") -> Node2D:
+	return place_tree(to_world_pos(offset_y, offset_x, local_pos), obstacle_kind)
 
 
-func place_rock_local(offset_y: float, offset_x: float, local_pos: Vector2) -> StaticBody2D:
-	return place_rock(to_world_pos(offset_y, offset_x, local_pos))
+func place_rock_local(offset_y: float, offset_x: float, local_pos: Vector2, obstacle_kind: String = "decor") -> Node2D:
+	return place_rock(to_world_pos(offset_y, offset_x, local_pos), obstacle_kind)
 
 
 func sample_point_from_points(points: Array[Vector2], spread: Vector2, bounds: Rect2) -> Vector2:
@@ -694,6 +783,30 @@ func add_module_floor(offset_y: float, offset_x: float, fill_color: Color, borde
 	border.default_color = border_color
 	border.z_index = -19
 	tile_root.add_child(border)
+
+
+func add_path_cross(offset_y: float, offset_x: float, color: Color) -> void:
+	var vertical_path := Polygon2D.new()
+	vertical_path.polygon = PackedVector2Array([
+		Vector2(offset_x + MODULE_WIDTH * 0.5 - PATH_HALF_WIDTH, offset_y),
+		Vector2(offset_x + MODULE_WIDTH * 0.5 + PATH_HALF_WIDTH, offset_y),
+		Vector2(offset_x + MODULE_WIDTH * 0.5 + PATH_HALF_WIDTH, offset_y + MODULE_HEIGHT),
+		Vector2(offset_x + MODULE_WIDTH * 0.5 - PATH_HALF_WIDTH, offset_y + MODULE_HEIGHT)
+	])
+	vertical_path.color = color
+	vertical_path.z_index = -18
+	tile_root.add_child(vertical_path)
+
+	var horizontal_path := Polygon2D.new()
+	horizontal_path.polygon = PackedVector2Array([
+		Vector2(offset_x, offset_y + MODULE_HEIGHT * 0.5 - CROSS_PATH_HALF_HEIGHT),
+		Vector2(offset_x + MODULE_WIDTH, offset_y + MODULE_HEIGHT * 0.5 - CROSS_PATH_HALF_HEIGHT),
+		Vector2(offset_x + MODULE_WIDTH, offset_y + MODULE_HEIGHT * 0.5 + CROSS_PATH_HALF_HEIGHT),
+		Vector2(offset_x, offset_y + MODULE_HEIGHT * 0.5 + CROSS_PATH_HALF_HEIGHT)
+	])
+	horizontal_path.color = Color(color.r, color.g, color.b, color.a * 0.8)
+	horizontal_path.z_index = -17
+	tile_root.add_child(horizontal_path)
 
 
 func add_vertical_corridor_strip(offset_y: float, offset_x: float, left_x: float, right_x: float, color: Color) -> void:
