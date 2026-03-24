@@ -1,35 +1,35 @@
 extends Node2D
 
-const MODULE_WIDTH := 900.0
-const MODULE_HEIGHT := 880.0
-const MODULE_GATE_WIDTH := 260.0
+const MODULE_WIDTH := 720.0
+const MODULE_HEIGHT := 640.0
+const MODULE_GATE_WIDTH := 180.0
 const MODULE_GATE_LEFT := MODULE_WIDTH * 0.5 - MODULE_GATE_WIDTH * 0.5
 const MODULE_GATE_RIGHT := MODULE_WIDTH * 0.5 + MODULE_GATE_WIDTH * 0.5
-const ROAD_CORRIDOR_WIDTH := 240.0
-const MONSTER_SPAWN_ATTEMPTS := 20
+const ROAD_CORRIDOR_WIDTH := 180.0
+const MONSTER_SPAWN_ATTEMPTS := 18
 
 const PLAYER_SPEED := 340.0
-const PLAYER_MARGIN := Vector2(52.0, 52.0)
-const MONSTER_MARGIN := Vector2(42.0, 42.0)
-const MONSTER_HOME_EPSILON := 10.0
+const PLAYER_MARGIN := Vector2(30.0, 30.0)
+const MONSTER_MARGIN := Vector2(24.0, 24.0)
+const MONSTER_HOME_EPSILON := 8.0
 
 const PLAYER_TEXTURE_PATH := "res://assets/player/player.png"
 const MONSTER_DIR_PATH := "res://assets/monsters"
 const TREE_TEXTURE_PATH := "res://assets/environment/tree.png"
 const ROCK_TEXTURE_PATH := "res://assets/environment/rock.png"
 
-const ENTRY_TREE_COUNT := 8
-const FOREST_MONSTER_COUNT := 20
-const FOREST_TREE_COUNT := 96
-const FOREST_ROCK_COUNT := 14
-const ROAD_MONSTER_COUNT := 16
-const ROAD_ROCK_COUNT := 22
-const NEST_MONSTER_COUNT := 24
-const NEST_ROCK_COUNT := 10
+const ENTRY_TREE_COUNT := 6
+const FOREST_MONSTER_COUNT := 10
+const FOREST_TREE_COUNT := 42
+const FOREST_ROCK_COUNT := 8
+const ROAD_MONSTER_COUNT := 8
+const ROAD_ROCK_COUNT := 12
+const NEST_MONSTER_COUNT := 12
+const NEST_ROCK_COUNT := 8
 
 var rng := RandomNumberGenerator.new()
 var total_map_height := 0.0
-var world_bounds := Rect2(Vector2.ZERO, Vector2(MODULE_WIDTH, MODULE_HEIGHT))
+var world_bounds := Rect2(Vector2.ZERO, Vector2(MODULE_WIDTH * 2.0, MODULE_HEIGHT))
 
 @onready var tile_root: Node2D = $TileRoot
 @onready var player: CharacterBody2D = $Player
@@ -50,7 +50,6 @@ func _ready() -> void:
 	load_resources()
 	configure_scene()
 	generate_map()
-	configure_camera()
 
 
 func _physics_process(delta: float) -> void:
@@ -98,19 +97,36 @@ func load_resources() -> void:
 
 func configure_scene() -> void:
 	player.z_index = 20
+	player.motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
+	player.collision_layer = 1
+	player.collision_mask = 1
 	player_sprite.z_index = 20
-	player_sprite.scale = Vector2.ONE * 1.8
+	player_sprite.scale = Vector2.ONE * 1.6
 	player_sprite.centered = true
+	ensure_player_collision()
+
+
+func ensure_player_collision() -> void:
+	var collision := player.get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if collision == null:
+		collision = CollisionShape2D.new()
+		collision.name = "CollisionShape2D"
+		player.add_child(collision)
+
+	var shape := RectangleShape2D.new()
+	shape.size = Vector2(28.0, 34.0)
+	collision.position = Vector2(0.0, 4.0)
+	collision.shape = shape
 
 
 func configure_camera() -> void:
 	camera.position_smoothing_enabled = true
 	camera.position_smoothing_speed = 6.0
 	camera.limit_smoothed = true
-	camera.limit_left = int(world_bounds.position.x)
-	camera.limit_top = int(world_bounds.position.y)
-	camera.limit_right = int(world_bounds.position.x + world_bounds.size.x)
-	camera.limit_bottom = int(world_bounds.position.y + world_bounds.size.y)
+	camera.limit_left = 0
+	camera.limit_top = 0
+	camera.limit_right = int(world_bounds.size.x)
+	camera.limit_bottom = int(world_bounds.size.y)
 	camera.make_current()
 
 
@@ -148,203 +164,221 @@ func generate_map() -> void:
 	clear_children(monsters_root)
 	clear_children(obstacles_root)
 
+	var module_rows := [
+		PackedStringArray(["entry", "forest"]),
+		PackedStringArray(["road", "forest"]),
+		PackedStringArray(["nest", "road"]),
+		PackedStringArray(["forest", "nest"]),
+		PackedStringArray(["road", "boss"])
+	]
 	var offset_y := 0.0
-	create_entry_module(offset_y)
-	offset_y += MODULE_HEIGHT
-	create_forest_module(offset_y)
-	offset_y += MODULE_HEIGHT
-	create_road_module(offset_y)
-	offset_y += MODULE_HEIGHT
-	create_nest_module(offset_y)
-	offset_y += MODULE_HEIGHT
-	create_boss_module(offset_y)
 
-	total_map_height = offset_y + MODULE_HEIGHT
-	world_bounds = Rect2(Vector2.ZERO, Vector2(MODULE_WIDTH, total_map_height))
+	for module_row in module_rows:
+		var left_x := 0.0
+		var right_x := MODULE_WIDTH
+		create_module_by_type(module_row[0], offset_y, left_x)
+		create_module_by_type(module_row[1], offset_y, right_x)
+		offset_y += MODULE_HEIGHT
+
+	total_map_height = offset_y
+	world_bounds = Rect2(Vector2.ZERO, Vector2(MODULE_WIDTH * 2.0, total_map_height))
 	player.position = clamp_to_world(player.position, PLAYER_MARGIN)
+	configure_camera()
 
 
-func create_entry_module(offset_y: float) -> void:
+func create_module_by_type(module_type: String, offset_y: float, offset_x: float) -> void:
+	match module_type:
+		"entry":
+			create_entry_module(offset_y, offset_x)
+		"forest":
+			create_forest_module(offset_y, offset_x)
+		"road":
+			create_road_module(offset_y, offset_x)
+		"nest":
+			create_nest_module(offset_y, offset_x)
+		"boss":
+			create_boss_module(offset_y, offset_x)
+		_:
+			push_warning("Unknown module type: %s" % module_type)
+
+
+func create_entry_module(offset_y: float, offset_x: float) -> void:
 	var spawn_point := ratio_pos(0.5, 0.18)
 	var tree_points: Array[Vector2] = [
-		ratio_pos(0.18, 0.12),
-		ratio_pos(0.3, 0.26),
-		ratio_pos(0.72, 0.15),
-		ratio_pos(0.84, 0.28),
-		ratio_pos(0.24, 0.64),
-		ratio_pos(0.78, 0.72)
+		ratio_pos(0.18, 0.14),
+		ratio_pos(0.32, 0.24),
+		ratio_pos(0.74, 0.16),
+		ratio_pos(0.82, 0.28),
+		ratio_pos(0.24, 0.66),
+		ratio_pos(0.76, 0.72)
 	]
 	var rock_points: Array[Vector2] = [
-		ratio_pos(0.16, 0.38),
-		ratio_pos(0.82, 0.42),
-		ratio_pos(0.48, 0.74)
+		ratio_pos(0.2, 0.42),
+		ratio_pos(0.78, 0.46),
+		ratio_pos(0.52, 0.76)
 	]
-	var module_bounds := Rect2(Vector2(92.0, 86.0), Vector2(MODULE_WIDTH - 184.0, MODULE_HEIGHT - 172.0))
+	var module_bounds := Rect2(Vector2(56.0, 54.0), Vector2(MODULE_WIDTH - 112.0, MODULE_HEIGHT - 108.0))
 
-	add_module_floor(offset_y, Color(0.46, 0.71, 0.44), Color(0.19, 0.38, 0.19))
-	add_circle_fill(to_world_pos(offset_y, ratio_pos(0.5, 0.24)), 110.0, Color(0.82, 0.91, 0.66, 0.48), -16)
-	decorate_module_boundaries(offset_y, "entry", false, true)
+	add_module_floor(offset_y, offset_x, Color(0.46, 0.71, 0.44), Color(0.19, 0.38, 0.19))
+	add_circle_fill(to_world_pos(offset_y, offset_x, ratio_pos(0.5, 0.24)), 84.0, Color(0.82, 0.91, 0.66, 0.48), -16)
+	decorate_module_boundaries(offset_y, offset_x, "entry", false, true)
 
 	for index in range(ENTRY_TREE_COUNT):
-		place_tree_local(offset_y, jitter_local_point(tree_points[index % tree_points.size()], Vector2(34.0, 34.0), module_bounds))
+		place_tree_local(offset_y, offset_x, jitter_local_point(tree_points[index % tree_points.size()], Vector2(22.0, 24.0), module_bounds))
 
 	for rock_point in rock_points:
-		place_rock_local(offset_y, jitter_local_point(rock_point, Vector2(24.0, 24.0), module_bounds))
+		place_rock_local(offset_y, offset_x, jitter_local_point(rock_point, Vector2(18.0, 18.0), module_bounds))
 
-	player.position = to_world_pos(offset_y, spawn_point)
+	if offset_x == 0.0:
+		player.position = to_world_pos(offset_y, offset_x, spawn_point)
 
 
-func create_forest_module(offset_y: float) -> void:
+func create_forest_module(offset_y: float, offset_x: float) -> void:
 	var variant := rng.randi_range(0, 1)
-	var spawn_points: Array[Vector2]
-	var tree_points: Array[Vector2]
-	var rock_points: Array[Vector2]
+	var spawn_points: Array[Vector2] = []
+	var tree_points: Array[Vector2] = []
+	var rock_points: Array[Vector2] = []
 	var fill_color := Color(0.17, 0.39, 0.2)
 	var border_color := Color(0.07, 0.2, 0.09)
-	var tree_bounds := Rect2(Vector2(72.0, 72.0), Vector2(MODULE_WIDTH - 144.0, MODULE_HEIGHT - 144.0))
-	var monster_bounds := Rect2(Vector2(118.0, 132.0), Vector2(MODULE_WIDTH - 236.0, MODULE_HEIGHT - 264.0))
+	var tree_bounds := Rect2(Vector2(44.0, 44.0), Vector2(MODULE_WIDTH - 88.0, MODULE_HEIGHT - 88.0))
+	var monster_bounds := Rect2(Vector2(84.0, 88.0), Vector2(MODULE_WIDTH - 168.0, MODULE_HEIGHT - 176.0))
 
 	if variant == 0:
-		fill_color = Color(0.17, 0.39, 0.2)
-		border_color = Color(0.07, 0.2, 0.09)
 		spawn_points = [
-			ratio_pos(0.23, 0.18),
-			ratio_pos(0.68, 0.2),
-			ratio_pos(0.34, 0.34),
-			ratio_pos(0.75, 0.4),
-			ratio_pos(0.24, 0.56),
-			ratio_pos(0.56, 0.58),
-			ratio_pos(0.4, 0.76),
-			ratio_pos(0.72, 0.8)
+			ratio_pos(0.24, 0.2),
+			ratio_pos(0.68, 0.24),
+			ratio_pos(0.34, 0.36),
+			ratio_pos(0.74, 0.42),
+			ratio_pos(0.24, 0.58),
+			ratio_pos(0.56, 0.62),
+			ratio_pos(0.42, 0.78),
+			ratio_pos(0.72, 0.82)
 		]
 		tree_points = [
-			ratio_pos(0.12, 0.12),
+			ratio_pos(0.12, 0.14),
 			ratio_pos(0.82, 0.14),
 			ratio_pos(0.18, 0.28),
-			ratio_pos(0.74, 0.3),
-			ratio_pos(0.14, 0.52),
-			ratio_pos(0.86, 0.54),
-			ratio_pos(0.2, 0.78),
-			ratio_pos(0.8, 0.76),
-			ratio_pos(0.48, 0.44),
-			ratio_pos(0.54, 0.68)
+			ratio_pos(0.74, 0.32),
+			ratio_pos(0.16, 0.52),
+			ratio_pos(0.84, 0.56),
+			ratio_pos(0.22, 0.76),
+			ratio_pos(0.78, 0.8),
+			ratio_pos(0.48, 0.44)
 		]
 		rock_points = [
 			ratio_pos(0.28, 0.22),
-			ratio_pos(0.64, 0.28),
-			ratio_pos(0.22, 0.62),
-			ratio_pos(0.74, 0.66),
-			ratio_pos(0.46, 0.84)
+			ratio_pos(0.64, 0.3),
+			ratio_pos(0.24, 0.64),
+			ratio_pos(0.72, 0.68)
 		]
 	else:
 		fill_color = Color(0.14, 0.34, 0.18)
 		border_color = Color(0.05, 0.17, 0.08)
 		spawn_points = [
-			ratio_pos(0.3, 0.16),
-			ratio_pos(0.62, 0.22),
-			ratio_pos(0.24, 0.36),
-			ratio_pos(0.7, 0.42),
-			ratio_pos(0.38, 0.52),
-			ratio_pos(0.76, 0.58),
-			ratio_pos(0.28, 0.72),
-			ratio_pos(0.62, 0.82)
+			ratio_pos(0.3, 0.18),
+			ratio_pos(0.62, 0.24),
+			ratio_pos(0.24, 0.38),
+			ratio_pos(0.68, 0.46),
+			ratio_pos(0.38, 0.56),
+			ratio_pos(0.76, 0.62),
+			ratio_pos(0.3, 0.74),
+			ratio_pos(0.64, 0.84)
 		]
 		tree_points = [
 			ratio_pos(0.16, 0.14),
-			ratio_pos(0.74, 0.12),
+			ratio_pos(0.76, 0.16),
 			ratio_pos(0.12, 0.32),
-			ratio_pos(0.84, 0.32),
+			ratio_pos(0.84, 0.34),
 			ratio_pos(0.18, 0.54),
-			ratio_pos(0.78, 0.56),
-			ratio_pos(0.24, 0.76),
-			ratio_pos(0.72, 0.8),
-			ratio_pos(0.48, 0.24),
-			ratio_pos(0.52, 0.68)
+			ratio_pos(0.78, 0.58),
+			ratio_pos(0.24, 0.78),
+			ratio_pos(0.7, 0.8),
+			ratio_pos(0.52, 0.24)
 		]
 		rock_points = [
-			ratio_pos(0.34, 0.18),
-			ratio_pos(0.6, 0.34),
+			ratio_pos(0.34, 0.2),
+			ratio_pos(0.6, 0.36),
 			ratio_pos(0.24, 0.48),
-			ratio_pos(0.68, 0.64),
-			ratio_pos(0.44, 0.84)
+			ratio_pos(0.68, 0.66)
 		]
 
-	add_module_floor(offset_y, fill_color, border_color)
-	decorate_module_boundaries(offset_y, "forest", true, true)
+	add_module_floor(offset_y, offset_x, fill_color, border_color)
+	decorate_module_boundaries(offset_y, offset_x, "forest", true, true)
 
 	for _i in range(FOREST_TREE_COUNT):
-		place_tree_local(offset_y, sample_point_from_points(tree_points, Vector2(86.0, 76.0), tree_bounds))
+		place_tree_local(offset_y, offset_x, sample_point_from_points(tree_points, Vector2(52.0, 44.0), tree_bounds))
 
 	for _i in range(FOREST_ROCK_COUNT):
-		place_rock_local(offset_y, sample_point_from_points(rock_points, Vector2(34.0, 34.0), tree_bounds))
+		place_rock_local(offset_y, offset_x, sample_point_from_points(rock_points, Vector2(22.0, 22.0), tree_bounds))
 
-	spawn_monsters_from_points(offset_y, spawn_points, FOREST_MONSTER_COUNT, monster_bounds, Vector2(76.0, 66.0), "normal", 58.0)
+	spawn_monsters_from_points(offset_y, offset_x, spawn_points, FOREST_MONSTER_COUNT, monster_bounds, Vector2(50.0, 44.0), "normal", 46.0)
 
 
-func create_road_module(offset_y: float) -> void:
+func create_road_module(offset_y: float, offset_x: float) -> void:
 	var corridor_left := MODULE_WIDTH * 0.5 - ROAD_CORRIDOR_WIDTH * 0.5
 	var corridor_right := MODULE_WIDTH * 0.5 + ROAD_CORRIDOR_WIDTH * 0.5
 	var spawn_points: Array[Vector2] = [
 		Vector2(MODULE_WIDTH * 0.5, MODULE_HEIGHT * 0.16),
-		Vector2(MODULE_WIDTH * 0.46, MODULE_HEIGHT * 0.28),
-		Vector2(MODULE_WIDTH * 0.54, MODULE_HEIGHT * 0.4),
-		Vector2(MODULE_WIDTH * 0.48, MODULE_HEIGHT * 0.54),
-		Vector2(MODULE_WIDTH * 0.52, MODULE_HEIGHT * 0.68),
-		Vector2(MODULE_WIDTH * 0.5, MODULE_HEIGHT * 0.82)
+		Vector2(MODULE_WIDTH * 0.46, MODULE_HEIGHT * 0.3),
+		Vector2(MODULE_WIDTH * 0.54, MODULE_HEIGHT * 0.44),
+		Vector2(MODULE_WIDTH * 0.48, MODULE_HEIGHT * 0.58),
+		Vector2(MODULE_WIDTH * 0.52, MODULE_HEIGHT * 0.72),
+		Vector2(MODULE_WIDTH * 0.5, MODULE_HEIGHT * 0.84)
 	]
-	var monster_bounds := Rect2(Vector2(corridor_left + 24.0, 100.0), Vector2(ROAD_CORRIDOR_WIDTH - 48.0, MODULE_HEIGHT - 200.0))
+	var monster_bounds := Rect2(Vector2(corridor_left + 18.0, 74.0), Vector2(ROAD_CORRIDOR_WIDTH - 36.0, MODULE_HEIGHT - 148.0))
 
-	add_module_floor(offset_y, Color(0.39, 0.33, 0.24), Color(0.19, 0.15, 0.09))
-	add_vertical_corridor_strip(offset_y, corridor_left, corridor_right, Color(0.64, 0.56, 0.38, 0.72))
-	decorate_module_boundaries(offset_y, "road", true, true)
-	create_road_side_walls(offset_y, corridor_left, corridor_right)
-	spawn_monsters_from_points(offset_y, spawn_points, ROAD_MONSTER_COUNT, monster_bounds, Vector2(32.0, 54.0), "normal", 64.0)
+	add_module_floor(offset_y, offset_x, Color(0.39, 0.33, 0.24), Color(0.19, 0.15, 0.09))
+	add_vertical_corridor_strip(offset_y, offset_x, corridor_left, corridor_right, Color(0.64, 0.56, 0.38, 0.72))
+	decorate_module_boundaries(offset_y, offset_x, "road", true, true)
+	create_road_side_walls(offset_y, offset_x, corridor_left, corridor_right)
+	spawn_monsters_from_points(offset_y, offset_x, spawn_points, ROAD_MONSTER_COUNT, monster_bounds, Vector2(20.0, 36.0), "normal", 52.0)
 
 
-func create_nest_module(offset_y: float) -> void:
-	var center_local := ratio_pos(0.5, 0.5)
-	var center := to_world_pos(offset_y, center_local)
+func create_nest_module(offset_y: float, offset_x: float) -> void:
+	var center_local := ratio_pos(0.5, 0.52)
+	var center := to_world_pos(offset_y, offset_x, center_local)
 	var spawn_points: Array[Vector2] = [
-		ratio_pos(0.42, 0.3),
-		ratio_pos(0.58, 0.3),
-		ratio_pos(0.32, 0.42),
-		ratio_pos(0.68, 0.42),
-		ratio_pos(0.32, 0.6),
-		ratio_pos(0.68, 0.6),
-		ratio_pos(0.44, 0.72),
-		ratio_pos(0.56, 0.72)
+		ratio_pos(0.42, 0.34),
+		ratio_pos(0.58, 0.34),
+		ratio_pos(0.32, 0.46),
+		ratio_pos(0.68, 0.46),
+		ratio_pos(0.32, 0.62),
+		ratio_pos(0.68, 0.62),
+		ratio_pos(0.44, 0.76),
+		ratio_pos(0.56, 0.76)
 	]
-	var monster_bounds := Rect2(Vector2(200.0, 146.0), Vector2(MODULE_WIDTH - 400.0, MODULE_HEIGHT - 292.0))
+	var monster_bounds := Rect2(Vector2(146.0, 116.0), Vector2(MODULE_WIDTH - 292.0, MODULE_HEIGHT - 232.0))
 
-	add_module_floor(offset_y, Color(0.25, 0.21, 0.17), Color(0.11, 0.08, 0.05))
-	add_circle_fill(center, 148.0, Color(0.43, 0.24, 0.16, 0.8), -15)
-	add_circle_outline(center, 176.0, Color(0.69, 0.42, 0.24, 0.96), 7.0, -14)
-	decorate_module_boundaries(offset_y, "nest", true, true)
+	add_module_floor(offset_y, offset_x, Color(0.25, 0.21, 0.17), Color(0.11, 0.08, 0.05))
+	add_circle_fill(center, 104.0, Color(0.43, 0.24, 0.16, 0.8), -15)
+	add_circle_outline(center, 126.0, Color(0.69, 0.42, 0.24, 0.96), 6.0, -14)
+	decorate_module_boundaries(offset_y, offset_x, "nest", true, true)
 
 	for index in range(NEST_ROCK_COUNT):
-		var angle := TAU * float(index) / float(NEST_ROCK_COUNT) + rng.randf_range(-0.2, 0.2)
-		var distance := 208.0 + rng.randf_range(-18.0, 30.0)
-		place_rock_local(offset_y, clamp_local_point(center_local + Vector2.RIGHT.rotated(angle) * distance, Rect2(Vector2(100.0, 100.0), Vector2(MODULE_WIDTH - 200.0, MODULE_HEIGHT - 200.0))))
+		var angle := TAU * float(index) / float(NEST_ROCK_COUNT) + rng.randf_range(-0.18, 0.18)
+		var distance := 156.0 + rng.randf_range(-12.0, 24.0)
+		var rock_pos := center_local + Vector2.RIGHT.rotated(angle) * distance
+		place_rock_local(offset_y, offset_x, clamp_local_point(rock_pos, Rect2(Vector2(74.0, 74.0), Vector2(MODULE_WIDTH - 148.0, MODULE_HEIGHT - 148.0))))
 
-	spawn_monsters_from_points(offset_y, spawn_points, NEST_MONSTER_COUNT, monster_bounds, Vector2(44.0, 44.0), "normal", 36.0)
-	spawn_monster(jitter_local_point(center_local, Vector2(24.0, 24.0), monster_bounds), "elite", offset_y)
+	spawn_monsters_from_points(offset_y, offset_x, spawn_points, NEST_MONSTER_COUNT, monster_bounds, Vector2(28.0, 28.0), "normal", 32.0)
+	spawn_monster(jitter_local_point(center_local, Vector2(18.0, 18.0), monster_bounds), "elite", offset_y, offset_x)
 
 
-func create_boss_module(offset_y: float) -> void:
-	var spawn_point := ratio_pos(0.5, 0.5)
-	var center := to_world_pos(offset_y, spawn_point)
+func create_boss_module(offset_y: float, offset_x: float) -> void:
+	var spawn_point := ratio_pos(0.5, 0.52)
+	var center := to_world_pos(offset_y, offset_x, spawn_point)
 
-	add_module_floor(offset_y, Color(0.18, 0.13, 0.14), Color(0.3, 0.1, 0.11))
-	add_circle_fill(center, 198.0, Color(0.38, 0.11, 0.12, 0.82), -15)
-	add_circle_outline(center, 226.0, Color(0.87, 0.53, 0.24, 0.96), 8.0, -14)
-	decorate_module_boundaries(offset_y, "boss", true, false)
+	add_module_floor(offset_y, offset_x, Color(0.18, 0.13, 0.14), Color(0.3, 0.1, 0.11))
+	add_circle_fill(center, 142.0, Color(0.38, 0.11, 0.12, 0.82), -15)
+	add_circle_outline(center, 162.0, Color(0.87, 0.53, 0.24, 0.96), 7.0, -14)
+	decorate_module_boundaries(offset_y, offset_x, "boss", true, false)
 
 	for index in range(8):
 		var angle := TAU * float(index) / 8.0
-		var local_pos := spawn_point + Vector2.RIGHT.rotated(angle) * rng.randf_range(232.0, 272.0)
-		place_rock_local(offset_y, clamp_local_point(local_pos, Rect2(Vector2(102.0, 102.0), Vector2(MODULE_WIDTH - 204.0, MODULE_HEIGHT - 204.0))))
+		var local_pos := spawn_point + Vector2.RIGHT.rotated(angle) * rng.randf_range(166.0, 194.0)
+		place_rock_local(offset_y, offset_x, clamp_local_point(local_pos, Rect2(Vector2(80.0, 80.0), Vector2(MODULE_WIDTH - 160.0, MODULE_HEIGHT - 160.0))))
 
-	spawn_monster(spawn_point, "boss", offset_y)
+	spawn_monster(spawn_point, "boss", offset_y, offset_x)
 
 
 func update_player_movement() -> void:
@@ -386,10 +420,10 @@ func update_monsters(delta: float) -> void:
 			monster.flip_h = to_player.x < 0.0
 
 
-func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0) -> Sprite2D:
+func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0, offset_x: float = 0.0) -> Sprite2D:
 	var monster := Sprite2D.new()
 	var texture: Texture2D = player_texture
-	var world_position := to_world_pos(offset_y, pos)
+	var world_position := to_world_pos(offset_y, offset_x, pos)
 	var speed := 110.0
 	var return_speed := 82.0
 	var detection_radius := 240.0
@@ -407,7 +441,7 @@ func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0)
 
 	match type:
 		"elite":
-			monster.scale = Vector2.ONE * 0.95
+			monster.scale = Vector2.ONE * 0.82
 			monster.modulate = Color(1.0, 0.92, 0.7)
 			speed = 145.0
 			return_speed = 104.0
@@ -415,7 +449,7 @@ func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0)
 			attack_range = 32.0
 			leash_distance = 520.0
 		"boss":
-			monster.scale = Vector2.ONE * 1.35
+			monster.scale = Vector2.ONE * 1.2
 			monster.modulate = Color(1.0, 0.82, 0.82)
 			speed = 95.0
 			return_speed = 72.0
@@ -423,7 +457,7 @@ func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0)
 			attack_range = 44.0
 			leash_distance = 700.0
 		_:
-			monster.scale = Vector2.ONE * 0.72
+			monster.scale = Vector2.ONE * 0.64
 			monster.modulate = Color.WHITE
 
 	monster.set_meta("monster_type", type)
@@ -438,26 +472,37 @@ func spawn_monster(pos: Vector2, type: String = "normal", offset_y: float = 0.0)
 	return monster
 
 
-func place_tree(pos: Vector2) -> Sprite2D:
-	var tree := Sprite2D.new()
-	tree.texture = tree_texture
-	tree.position = pos
-	tree.scale = Vector2.ONE * rng.randf_range(1.5, 2.2)
-	tree.rotation = deg_to_rad(rng.randf_range(-8.0, 8.0))
-	tree.z_index = 4
-	obstacles_root.add_child(tree)
-	return tree
+func place_tree(pos: Vector2) -> StaticBody2D:
+	return create_obstacle_body(pos, tree_texture, Vector2(60.0, 60.0), Vector2(1.4, 2.0), Vector2(-8.0, 8.0), 4)
 
 
-func place_rock(pos: Vector2) -> Sprite2D:
-	var rock := Sprite2D.new()
-	rock.texture = rock_texture
-	rock.position = pos
-	rock.scale = Vector2.ONE * rng.randf_range(1.2, 1.8)
-	rock.rotation = deg_to_rad(rng.randf_range(-18.0, 18.0))
-	rock.z_index = 5
-	obstacles_root.add_child(rock)
-	return rock
+func place_rock(pos: Vector2) -> StaticBody2D:
+	return create_obstacle_body(pos, rock_texture, Vector2(44.0, 44.0), Vector2(1.1, 1.6), Vector2(-18.0, 18.0), 5)
+
+
+func create_obstacle_body(world_pos: Vector2, texture: Texture2D, collision_size: Vector2, scale_range: Vector2, rotation_range: Vector2, z_index_value: int) -> StaticBody2D:
+	var body := StaticBody2D.new()
+	var sprite := Sprite2D.new()
+	var collision := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+
+	body.position = world_pos
+	body.z_index = z_index_value
+	body.collision_layer = 1
+	body.collision_mask = 1
+
+	sprite.texture = texture
+	sprite.centered = true
+	sprite.scale = Vector2.ONE * rng.randf_range(scale_range.x, scale_range.y)
+	sprite.rotation = deg_to_rad(rng.randf_range(rotation_range.x, rotation_range.y))
+
+	shape.size = collision_size
+	collision.shape = shape
+
+	body.add_child(sprite)
+	body.add_child(collision)
+	obstacles_root.add_child(body)
+	return body
 
 
 func clear_children(root: Node) -> void:
@@ -465,13 +510,13 @@ func clear_children(root: Node) -> void:
 		child.queue_free()
 
 
-func spawn_monsters_from_points(offset_y: float, spawn_points: Array[Vector2], count: int, bounds: Rect2, spread: Vector2, type: String = "normal", min_distance: float = 28.0) -> void:
+func spawn_monsters_from_points(offset_y: float, offset_x: float, spawn_points: Array[Vector2], count: int, bounds: Rect2, spread: Vector2, type: String = "normal", min_distance: float = 28.0) -> void:
 	var used_positions: Array[Vector2] = []
 
 	for _i in range(count):
 		var local_pos := sample_spawn_position(spawn_points, used_positions, bounds, spread, min_distance)
 		used_positions.append(local_pos)
-		spawn_monster(local_pos, type, offset_y)
+		spawn_monster(local_pos, type, offset_y, offset_x)
 
 
 func sample_spawn_position(spawn_points: Array[Vector2], used_positions: Array[Vector2], bounds: Rect2, spread: Vector2, min_distance: float) -> Vector2:
@@ -506,86 +551,86 @@ func get_nearest_distance(local_pos: Vector2, used_positions: Array[Vector2]) ->
 	return nearest
 
 
-func decorate_module_boundaries(offset_y: float, theme: String, top_has_opening: bool, bottom_has_opening: bool) -> void:
-	place_vertical_boundary(offset_y, 24.0, theme)
-	place_vertical_boundary(offset_y, MODULE_WIDTH - 24.0, theme)
-	place_horizontal_boundary(offset_y, 28.0, theme, top_has_opening)
-	place_horizontal_boundary(offset_y, MODULE_HEIGHT - 28.0, theme, bottom_has_opening)
+func decorate_module_boundaries(offset_y: float, offset_x: float, theme: String, top_has_opening: bool, bottom_has_opening: bool) -> void:
+	place_vertical_boundary(offset_y, offset_x, 18.0, theme)
+	place_vertical_boundary(offset_y, offset_x, MODULE_WIDTH - 18.0, theme)
+	place_horizontal_boundary(offset_y, offset_x, 22.0, theme, top_has_opening)
+	place_horizontal_boundary(offset_y, offset_x, MODULE_HEIGHT - 22.0, theme, bottom_has_opening)
 
 
-func place_horizontal_boundary(offset_y: float, y_local: float, theme: String, has_opening: bool) -> void:
-	var x_local := 42.0
-	while x_local <= MODULE_WIDTH - 42.0:
+func place_horizontal_boundary(offset_y: float, offset_x: float, y_local: float, theme: String, has_opening: bool) -> void:
+	var x_local := 36.0
+	while x_local <= MODULE_WIDTH - 36.0:
 		if has_opening and x_local >= MODULE_GATE_LEFT and x_local <= MODULE_GATE_RIGHT:
-			x_local = MODULE_GATE_RIGHT + 32.0
+			x_local = MODULE_GATE_RIGHT + 28.0
 			continue
 
-		var local_pos := Vector2(x_local + rng.randf_range(-8.0, 8.0), y_local + rng.randf_range(-6.0, 6.0))
-		place_boundary_obstacle(offset_y, local_pos, theme)
-		x_local += 52.0 + rng.randf_range(-4.0, 4.0)
+		var local_pos := Vector2(x_local + rng.randf_range(-6.0, 6.0), y_local + rng.randf_range(-4.0, 4.0))
+		place_boundary_obstacle(offset_y, offset_x, local_pos, theme)
+		x_local += 44.0 + rng.randf_range(-3.0, 3.0)
 
 
-func place_vertical_boundary(offset_y: float, x_local: float, theme: String) -> void:
-	var y_local := 46.0
-	while y_local <= MODULE_HEIGHT - 46.0:
-		var local_pos := Vector2(x_local + rng.randf_range(-7.0, 7.0), y_local + rng.randf_range(-8.0, 8.0))
-		place_boundary_obstacle(offset_y, local_pos, theme)
-		y_local += 54.0 + rng.randf_range(-4.0, 5.0)
+func place_vertical_boundary(offset_y: float, offset_x: float, x_local: float, theme: String) -> void:
+	var y_local := 36.0
+	while y_local <= MODULE_HEIGHT - 36.0:
+		var local_pos := Vector2(x_local + rng.randf_range(-6.0, 6.0), y_local + rng.randf_range(-6.0, 6.0))
+		place_boundary_obstacle(offset_y, offset_x, local_pos, theme)
+		y_local += 44.0 + rng.randf_range(-3.0, 4.0)
 
 
-func place_boundary_obstacle(offset_y: float, local_pos: Vector2, theme: String) -> void:
+func place_boundary_obstacle(offset_y: float, offset_x: float, local_pos: Vector2, theme: String) -> void:
 	var roll := rng.randf()
 
 	match theme:
 		"forest":
-			if roll < 0.74:
-				place_tree_local(offset_y, local_pos)
+			if roll < 0.72:
+				place_tree_local(offset_y, offset_x, local_pos)
 			else:
-				place_rock_local(offset_y, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos)
 		"road":
-			if roll < 0.84:
-				place_rock_local(offset_y, local_pos)
+			if roll < 0.86:
+				place_rock_local(offset_y, offset_x, local_pos)
 			else:
-				place_tree_local(offset_y, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos)
 		"nest", "boss":
 			if roll < 0.9:
-				place_rock_local(offset_y, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos)
 			else:
-				place_tree_local(offset_y, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos)
 		_:
 			if roll < 0.62:
-				place_tree_local(offset_y, local_pos)
+				place_tree_local(offset_y, offset_x, local_pos)
 			else:
-				place_rock_local(offset_y, local_pos)
+				place_rock_local(offset_y, offset_x, local_pos)
 
 
-func create_road_side_walls(offset_y: float, corridor_left: float, corridor_right: float) -> void:
+func create_road_side_walls(offset_y: float, offset_x: float, corridor_left: float, corridor_right: float) -> void:
 	for index in range(ROAD_ROCK_COUNT):
-		var row := index % 11
-		var top_side := index < 11
-		var y_local := 108.0 + float(row) * 60.0 + rng.randf_range(-10.0, 10.0)
-		var x_local := corridor_left - rng.randf_range(38.0, 86.0)
+		var row := index % 6
+		var left_side := index < 6
+		var y_local := 92.0 + float(row) * 84.0 + rng.randf_range(-6.0, 6.0)
+		var x_local := corridor_left - rng.randf_range(28.0, 52.0)
 
-		if not top_side:
-			x_local = corridor_right + rng.randf_range(38.0, 86.0)
+		if not left_side:
+			x_local = corridor_right + rng.randf_range(28.0, 52.0)
 
-		place_rock_local(offset_y, Vector2(x_local, y_local))
+		place_rock_local(offset_y, offset_x, Vector2(x_local, y_local))
 
 
 func ratio_pos(x_ratio: float, y_ratio: float) -> Vector2:
 	return Vector2(MODULE_WIDTH * x_ratio, MODULE_HEIGHT * y_ratio)
 
 
-func to_world_pos(offset_y: float, local_pos: Vector2) -> Vector2:
-	return Vector2(local_pos.x, offset_y + local_pos.y)
+func to_world_pos(offset_y: float, offset_x: float, local_pos: Vector2) -> Vector2:
+	return Vector2(offset_x + local_pos.x, offset_y + local_pos.y)
 
 
-func place_tree_local(offset_y: float, local_pos: Vector2) -> Sprite2D:
-	return place_tree(to_world_pos(offset_y, local_pos))
+func place_tree_local(offset_y: float, offset_x: float, local_pos: Vector2) -> StaticBody2D:
+	return place_tree(to_world_pos(offset_y, offset_x, local_pos))
 
 
-func place_rock_local(offset_y: float, local_pos: Vector2) -> Sprite2D:
-	return place_rock(to_world_pos(offset_y, local_pos))
+func place_rock_local(offset_y: float, offset_x: float, local_pos: Vector2) -> StaticBody2D:
+	return place_rock(to_world_pos(offset_y, offset_x, local_pos))
 
 
 func sample_point_from_points(points: Array[Vector2], spread: Vector2, bounds: Rect2) -> Vector2:
@@ -625,13 +670,13 @@ func rect_center(bounds: Rect2) -> Vector2:
 	)
 
 
-func add_module_floor(offset_y: float, fill_color: Color, border_color: Color) -> void:
+func add_module_floor(offset_y: float, offset_x: float, fill_color: Color, border_color: Color) -> void:
 	var floor := Polygon2D.new()
 	floor.polygon = PackedVector2Array([
-		Vector2(0.0, offset_y),
-		Vector2(MODULE_WIDTH, offset_y),
-		Vector2(MODULE_WIDTH, offset_y + MODULE_HEIGHT),
-		Vector2(0.0, offset_y + MODULE_HEIGHT)
+		Vector2(offset_x, offset_y),
+		Vector2(offset_x + MODULE_WIDTH, offset_y),
+		Vector2(offset_x + MODULE_WIDTH, offset_y + MODULE_HEIGHT),
+		Vector2(offset_x, offset_y + MODULE_HEIGHT)
 	])
 	floor.color = fill_color
 	floor.z_index = -20
@@ -639,25 +684,25 @@ func add_module_floor(offset_y: float, fill_color: Color, border_color: Color) -
 
 	var border := Line2D.new()
 	border.points = PackedVector2Array([
-		Vector2(0.0, offset_y),
-		Vector2(MODULE_WIDTH, offset_y),
-		Vector2(MODULE_WIDTH, offset_y + MODULE_HEIGHT),
-		Vector2(0.0, offset_y + MODULE_HEIGHT)
+		Vector2(offset_x, offset_y),
+		Vector2(offset_x + MODULE_WIDTH, offset_y),
+		Vector2(offset_x + MODULE_WIDTH, offset_y + MODULE_HEIGHT),
+		Vector2(offset_x, offset_y + MODULE_HEIGHT)
 	])
 	border.closed = true
-	border.width = 6.0
+	border.width = 4.0
 	border.default_color = border_color
 	border.z_index = -19
 	tile_root.add_child(border)
 
 
-func add_vertical_corridor_strip(offset_y: float, left_x: float, right_x: float, color: Color) -> void:
+func add_vertical_corridor_strip(offset_y: float, offset_x: float, left_x: float, right_x: float, color: Color) -> void:
 	var corridor := Polygon2D.new()
 	corridor.polygon = PackedVector2Array([
-		Vector2(left_x, offset_y),
-		Vector2(right_x, offset_y),
-		Vector2(right_x, offset_y + MODULE_HEIGHT),
-		Vector2(left_x, offset_y + MODULE_HEIGHT)
+		Vector2(offset_x + left_x, offset_y),
+		Vector2(offset_x + right_x, offset_y),
+		Vector2(offset_x + right_x, offset_y + MODULE_HEIGHT),
+		Vector2(offset_x + left_x, offset_y + MODULE_HEIGHT)
 	])
 	corridor.color = color
 	corridor.z_index = -18
@@ -682,7 +727,7 @@ func add_circle_outline(center: Vector2, radius: float, color: Color, width: flo
 	tile_root.add_child(outline)
 
 
-func build_circle_points(center: Vector2, radius: float, segments: int = 48) -> PackedVector2Array:
+func build_circle_points(center: Vector2, radius: float, segments: int = 40) -> PackedVector2Array:
 	var points := PackedVector2Array()
 	for index in range(segments):
 		var angle := TAU * float(index) / float(segments)
