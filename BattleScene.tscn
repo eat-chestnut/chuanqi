@@ -12,6 +12,8 @@ script = ExtResource("1_tdy4u")
 [node name="Sprite2D" type="Sprite2D" parent="Player"]
 centered = true
 
+[node name="Camera2D" type="Camera2D" parent="Player"]
+
 [node name="Monsters" type="Node2D" parent="."]
 
 [node name="Obstacles" type="Node2D" parent="."]
